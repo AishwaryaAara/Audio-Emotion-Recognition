@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Emotion Recognition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen">
+    <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+        <h1 class="text-2xl font-bold text-center mb-6 text-gray-800">Speech Emotion Recognition</h1>
+        <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="audio-upload">
+                Upload Audio File (WAV)
+            </label>
+            <input id="audio-upload" type="file" accept="audio/wav" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100"/>
+        </div>
+        <button id="predict-btn" class="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 transition duration-300" disabled>
+            Predict Emotion
+        </button>
+        <div id="result" class="mt-6 hidden">
+            <h2 class="text-lg font-semibold text-gray-800">Predicted Emotion</h2>
+            <p id="emotion" class="text-gray-600"></p>
+            <p id="confidence" class="text-gray-600"></p>
+        </div>
+        <div id="waveform" class="mt-6">
+            <canvas id="waveform-canvas" class="w-full h-24"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const audioUpload = document.getElementById('audio-upload');
+        const predictBtn = document.getElementById('predict-btn');
+        const resultDiv = document.getElementById('result');
+        const emotionText = document.getElementById('emotion');
+        const confidenceText = document.getElementById('confidence');
+        const waveformCanvas = document.getElementById('waveform-canvas');
+        const ctx = waveformCanvas.getContext('2d');
+
+        audioUpload.addEventListener('change', (event) => {
+            if (event.target.files.length > 0) {
+                predictBtn.disabled = false;
+            } else {
+                predictBtn.disabled = true;
+            }
+        });
+
+        async function drawWaveform(audioBuffer) {
+            const rawData = audioBuffer.getChannelData(0); // Get first channel
+            const samples = 1000; // Number of samples to display
+            const blockSize = Math.floor(rawData.length / samples);
+            const filteredData = [];
+            for (let i = 0; i < samples; i++) {
+                let blockStart = i * blockSize;
+                let sum = 0;
+                for (let j = 0; j < blockSize; j++) {
+                    sum += Math.abs(rawData[blockStart + j] || 0);
+                }
+                filteredData.push(sum / blockSize);
+            }
+
+            const maxVal = Math.max(...filteredData);
+            if (maxVal > 0) {
+                for (let i = 0; i < filteredData.length; i++) {
+                    filteredData[i] /= maxVal;
+                }
+            }
+
+            waveformCanvas.width = waveformCanvas.offsetWidth;
+            waveformCanvas.height = waveformCanvas.offsetHeight;
+            ctx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+            ctx.strokeStyle = '#2E40CB';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            const sliceWidth = waveformCanvas.width / samples;
+            for (let i = 0; i < samples; i++) {
+                const x = i * sliceWidth;
+                const y = (1 - filteredData[i]) * waveformCanvas.height / 2;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+        }
+
+
+        predictBtn.addEventListener('click', async () => {
+            const file = audioUpload.files[0];
+            if (!file) {
+                alert('Please upload an audio file.');
+                return;
+            }
+
+
+            const arrayBuffer = await file.arrayBuffer();
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            drawWaveform(audioBuffer);
+
+
+            const formData = new FormData();
+            formData.append('audio', file);
+
+            try {
+                const response = await fetch('http://localhost:5000/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const data = await response.json();
+                const { emotion, confidence } = data;
+
+
+                emotionText.textContent = `Emotion: ${emotion}`;
+                confidenceText.textContent = `Confidence: ${(confidence * 100).toFixed(2)}%`;
+                resultDiv.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error:', error);
+                emotionText.textContent = 'Error predicting emotion';
+                confidenceText.textContent = '';
+                resultDiv.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
